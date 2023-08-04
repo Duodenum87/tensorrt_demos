@@ -7,6 +7,7 @@ Implementation of TrtYOLO class with the yolo_layer plugins.
 from __future__ import print_function
 
 import ctypes
+import subprocess
 
 import numpy as np
 import cv2
@@ -308,7 +309,7 @@ class TrtYOLO(object):
         del self.inputs
         del self.stream
 
-    def detect(self, img, conf_th=0.3, letter_box=None):
+    def detect(self, img, highfreq, lowfreq, freqflag, conf_th=0.3, letter_box=None):
         """Detect objects in the input image."""
         letter_box = self.letter_box if letter_box is None else letter_box
         img_resized = _preprocess_yolo(img, self.input_shape, letter_box)
@@ -318,6 +319,13 @@ class TrtYOLO(object):
         self.inputs[0].host = np.ascontiguousarray(img_resized)
         if self.cuda_ctx:
             self.cuda_ctx.push()
+        if freqflag == 1:
+            high = "echo " + highfreq + "| tee /sys/devices/57000000.gpu/devfreq/57000000.gpu/max_freq /sys/devices/57000000.gpu/devfreq/57000000.gpu/min_freq"
+            subprocess.run(high, shell=True)
+            # subprocess.run("echo 921600000 > /sys/devices/57000000.gpu/devfreq/57000000.gpu/min_freq &", shell=True)
+        if freqflag == 2:
+            low = "echo " + lowfreq + "| tee /sys/devices/57000000.gpu/devfreq/57000000.gpu/min_freq /sys/devices/57000000.gpu/devfreq/57000000.gpu/max_freq"
+            subprocess.run(low, shell=True)
         trt_outputs = self.inference_fn(
             context=self.context,
             bindings=self.bindings,
