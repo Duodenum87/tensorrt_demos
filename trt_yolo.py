@@ -63,6 +63,18 @@ def get_power_consump():
         for i in range(3):
             file.write(f"{energy[i]}\n")
     
+def get_power():
+    global keep_running
+    sleep_time = 0.1
+    power_path = ["/sys/bus/i2c/drivers/ina3221x/6-0040/iio:device0/in_power0_input",
+                    "/sys/bus/i2c/drivers/ina3221x/6-0040/iio:device0/in_power1_input",
+                    "/sys/bus/i2c/drivers/ina3221x/6-0040/iio:device0/in_power2_input"]
+    while keep_running:
+        with open('gpu_output.txt', 'a') as file:
+            for i in range(3):
+                power = read_file(power_path[0])
+                file.write(f"{power}\n") 
+        time.sleep(sleep_time)
 
 def get_gpu_usage():
     global keep_running
@@ -152,7 +164,7 @@ def loop_and_detect(cam, trt_yolo, conf_th, progress_bar, vis):
     """
     """
     GPU_freq_stats = 11
-    last_rate = None
+    curr_rate = 0
     max_rate = 0
     while True:
         freqflag = 0
@@ -181,9 +193,10 @@ def loop_and_detect(cam, trt_yolo, conf_th, progress_bar, vis):
         """
         progress_bar.update()
         curr_rate = progress_bar.format_dict['rate']
-        if curr_rate > max_rate:
-            max_rate = curr_rate
-        if count % 10 == 0:
+        if curr_rate is not None and count < 50:
+            if curr_rate > max_rate:
+                max_rate = curr_rate
+        elif curr_rate is not None and count % 5 == 0:
             # if first_rate is None:
             #     fisrt_rate = curr_rate
             # else:
@@ -191,11 +204,10 @@ def loop_and_detect(cam, trt_yolo, conf_th, progress_bar, vis):
             #         GPU_freq_stats = GPU_scale_down(GPU_freq_stats)
             #     elif curr_rate < 0.8 * first_rate:
             #         GPU_freq_stats = GPU_scale_up(GPU_freq_stats)
-            if curr_rate < 0.9 * max_rate:
+            if curr_rate < 0.8 * max_rate * 0.95:
                 GPU_freq_stats = GPU_scale_up(GPU_freq_stats)
-            elif last_rate is not None and abs(last_rate - curr_rate) < 0.1 * curr_rate:
+            elif curr_rate > 0.8 * max_rate * 1.05:
                 GPU_freq_stats = GPU_scale_down(GPU_freq_stats)
-        last_rate = curr_rate
 
         """
         """
@@ -241,7 +253,7 @@ def main():
     global keep_running
     with open('gpu_output.txt', 'a') as file:
         file.write("\n")
-    t = threading.Thread(target=get_power_consump)
+    t = threading.Thread(target=get_power)
     t.start()
 
     cls_dict = get_cls_dict(args.category_num)
@@ -275,4 +287,6 @@ if __name__ == '__main__':
     end_time = time.time()
     with open('fps_output.txt', 'a') as file:
         file.write(str(end_time - start_time))
+        file.write("\n")
+    with open('gpu_output.txt', 'a') as file:
         file.write("\n")
