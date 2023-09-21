@@ -271,3 +271,10 @@ class Camera():
 
     def __del__(self):
         self.release()
+
+    def get_frames(self):
+        """ Return the total frames of input file """
+        if self.cap is not None and isinstance(self.cap, cv2.VideoCapture):
+            return int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        else:
+            return 0
