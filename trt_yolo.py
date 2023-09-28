@@ -135,6 +135,7 @@ def loop_and_detect(cam, trt_yolo, conf_th, lib, vis):
     # curr_rate = 0
     # max_rate = 0
     count = 0
+    exceed_flag = 0
     while True:
         if cv2.getWindowProperty(WINDOW_NAME, 0) < 0:
             break
@@ -142,7 +143,10 @@ def loop_and_detect(cam, trt_yolo, conf_th, lib, vis):
         if img is None:
             break
         # DFS algorithm
-        lib.main()
+        lib.main.argtypes = [ctypes.c_bool]
+        lib.main.restypes = [ctypes.c_int]
+        exceed_flag = lib.main(exceed_flag)
+
         boxes, confs, clss = trt_yolo.detect(img, conf_th)
         img = vis.draw_bboxes(img, boxes, confs, clss)
         img = show_fps(img, fps)

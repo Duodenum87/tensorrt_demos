@@ -136,7 +136,7 @@ void decrease_freq()
     }
 }
 
-int main()
+int main(bool P_THERSHOLD_exceed)
 {
     // while (1)
     // {
@@ -149,12 +149,14 @@ int main()
 
         if (power > P_THRESHOLD) {
             decrease_freq();
+            P_THERSHOLD_exceed = 1;
         } else if (workload < LOW_WORKLOAD_THRESHOLD) {
             decrease_freq();
-        } else if (workload > HIGH_WORKLOAD_THRESHOLD) {
+            P_THERSHOLD_exceed = 0;
+        } else if (workload > HIGH_WORKLOAD_THRESHOLD && !P_THERSHOLD_exceed) {
             increase_freq();
         }
 
     // }
-    return 0;
+    return P_THERSHOLD_exceed ? 1 : 0;
 }
