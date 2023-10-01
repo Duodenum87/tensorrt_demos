@@ -142,10 +142,7 @@ def loop_and_detect(cam, trt_yolo, conf_th, lib, vis):
         img = cam.read()
         if img is None:
             break
-        # DFS algorithm
-        lib.main.argtypes = [ctypes.c_bool]
-        lib.main.restypes = [ctypes.c_int]
-        exceed_flag = lib.main(exceed_flag)
+
 
         boxes, confs, clss = trt_yolo.detect(img, conf_th)
         img = vis.draw_bboxes(img, boxes, confs, clss)
@@ -153,6 +150,11 @@ def loop_and_detect(cam, trt_yolo, conf_th, lib, vis):
         cv2.imshow(WINDOW_NAME, img)
         toc = time.time()
         curr_fps = 1.0 / (toc - tic)
+        # # DFS algorithm
+        lib.main.argtypes = [ctypes.c_bool]
+        lib.main.restypes = [ctypes.c_int]
+        exceed_flag = lib.main(exceed_flag)
+        print(exceed_flag)
         # calculate the power consumption in this iteration
         lib.calculate_power.argtypes = [ctypes.c_float]
         lib.calculate_power(toc - tic)

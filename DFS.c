@@ -147,6 +147,7 @@ int main(bool P_THERSHOLD_exceed)
 
         update_frequency_index();
 
+        printf("current power: %d\n", power);
         if (power > P_THRESHOLD) {
             decrease_freq();
             P_THERSHOLD_exceed = 1;
