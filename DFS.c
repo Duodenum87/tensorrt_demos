@@ -37,6 +37,25 @@ int read_power()
     return power;
 } 
 
+int read_frequency()
+{
+    FILE *fp;
+    char buf[1024];
+    int frequency = 0;
+
+    fp = fopen("/sys/devices/57000000.gpu/devfreq/57000000.gpu/cur_freq", "r");
+    if (!fp) {
+        perror("Failed to read frequency");
+        exit(1);
+    }
+
+    fgets(buf, sizeof(buf), fp);
+    sscanf(buf, "%d", &frequency);
+
+    fclose(fp);
+    return frequency;
+}
+
 int read_GPU_usage()
 {
     FILE *fp;
@@ -134,6 +153,46 @@ void decrease_freq()
             fclose(file2);
         }
     }
+}
+
+int set_low_bound()
+{
+    FILE *file1 = fopen("/sys/devices/57000000.gpu/devfreq/57000000.gpu/min_freq", "w");
+    FILE *file2 = fopen("/sys/devices/57000000.gpu/devfreq/57000000.gpu/max_freq", "w");
+
+    if (file1 == NULL || file2 == NULL) {
+        perror("Error opening file");
+        exit(1);
+    }
+
+    update_frequency_index();
+
+    fprintf(file1, "%d", frequencies[0]);
+    fprintf(file2, "%d", frequencies[0]);
+
+    fclose(file1);
+    fclose(file2);
+
+    return current_frequency_index; // store the original state
+}
+
+void set_high_bound(int last_frequency_index)
+{
+    FILE *file1 = fopen("/sys/devices/57000000.gpu/devfreq/57000000.gpu/max_freq", "w");
+    FILE *file2 = fopen("/sys/devices/57000000.gpu/devfreq/57000000.gpu/min_freq", "w");
+
+    if (file1 == NULL || file2 == NULL) {
+        perror("Error opening file");
+        return;
+    }
+
+    fprintf(file1, "%d", frequencies[last_frequency_index]);
+    fprintf(file2, "%d", frequencies[last_frequency_index]);
+
+    fclose(file1);
+    fclose(file2);
+
+    current_frequency_index = last_frequency_index;
 }
 
 int main(bool P_THERSHOLD_exceed)

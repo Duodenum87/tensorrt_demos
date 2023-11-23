@@ -24,6 +24,7 @@ from utils.yolo_with_plugins import TrtYOLO
 
 
 WINDOW_NAME = 'TrtYOLODemo'
+start_time = 0
 # keep_running = True
 # current_power = 0
 
@@ -150,11 +151,12 @@ def loop_and_detect(cam, trt_yolo, conf_th, lib, vis):
         cv2.imshow(WINDOW_NAME, img)
         toc = time.time()
         curr_fps = 1.0 / (toc - tic)
-        # # DFS algorithm
-        lib.main.argtypes = [ctypes.c_bool]
-        lib.main.restypes = [ctypes.c_int]
-        exceed_flag = lib.main(exceed_flag)
-        print(exceed_flag)
+        # DFS algorithm
+        # lib.main.argtypes = [ctypes.c_bool]
+        # lib.main.restypes = [ctypes.c_int]
+        # exceed_flag = lib.main(exceed_flag)
+        # print(exceed_flag)
+
         # calculate the power consumption in this iteration
         lib.calculate_power.argtypes = [ctypes.c_float]
         lib.calculate_power(toc - tic)
@@ -191,9 +193,16 @@ def loop_and_detect(cam, trt_yolo, conf_th, lib, vis):
             full_scrn = not full_scrn
             set_display(WINDOW_NAME, full_scrn)
         count += 1
+        with open('perf_output.txt', 'a') as file:
+            file.write(str(count))
+            file.write(' ')
+            file.write(str(time.time() - start_time))
+            file.write("\n")
+
 
 
 def main():
+    lib = ctypes.CDLL('./DFS.so')
     args = parse_args()
     if args.category_num <= 0:
         raise SystemExit('ERROR: bad category_num (%d)!' % args.category_num)
@@ -209,16 +218,26 @@ def main():
     #     file.write("\n")
     # t = threading.Thread(target=get_power)
     # t.start()
+    usage = lib.read_GPU_usage()
+    print(usage)
+    with open('perf_output.txt', 'a') as file:
+        file.write(str(time.time() - start_time))
+        file.write("\n")
 
     cls_dict = get_cls_dict(args.category_num)
     vis = BBoxVisualization(cls_dict)
     trt_yolo = TrtYOLO(args.model, args.category_num, args.letter_box)
 
+    usage = lib.read_GPU_usage()
+    print(usage)
+    with open('perf_output.txt', 'a') as file:
+        file.write(str(time.time() - start_time))
+        file.write("\n")
+
     open_window(
         WINDOW_NAME, 'Camera TensorRT YOLO Demo',
         cam.img_width, cam.img_height)
     # progress_bar = tqdm(total=cam.get_frames())
-    lib = ctypes.CDLL('./DFS.so')
     loop_and_detect(cam, trt_yolo, args.conf_thresh, lib, vis=vis)
 
     # keep_running = False

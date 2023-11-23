@@ -15,5 +15,8 @@
 #define HIGH_WORKLOAD_THRESHOLD 80 // Placeholder value
 #define MARGIN 5 // Safety margin for power
 
+extern void update_frequency_index();
 void calculate_power(float);
 int read_power();
+extern int set_low_bound();
+void set_high_bound();
