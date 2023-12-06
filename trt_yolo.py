@@ -10,7 +10,7 @@ import time
 import argparse
 import ctypes
 # import subprocess
-# import threading
+import threading
 # from tqdm import tqdm
 
 import cv2
@@ -119,6 +119,8 @@ def parse_args():
     args = parser.parse_args()
     return args
 
+def run_daemon(lib):
+    lib.power_monitoring_daemon()
 
 def loop_and_detect(cam, trt_yolo, conf_th, lib, vis):
     """Continuously capture images from camera and do object detection.
@@ -158,8 +160,8 @@ def loop_and_detect(cam, trt_yolo, conf_th, lib, vis):
         # print(exceed_flag)
 
         # calculate the power consumption in this iteration
-        lib.calculate_power.argtypes = [ctypes.c_float]
-        lib.calculate_power(toc - tic)
+        # lib.calculate_power.argtypes = [ctypes.c_float]
+        # lib.calculate_power(toc - tic)
 
         # """ Scale by the estimated remaining time
         # """
@@ -218,6 +220,8 @@ def main():
     #     file.write("\n")
     # t = threading.Thread(target=get_power)
     # t.start()
+    # daemon_thread = threading.Thread(target=run_daemon, args=(lib,))
+    # daemon_thread.start()
     usage = lib.read_GPU_usage()
     print(usage)
     with open('perf_output.txt', 'a') as file:
@@ -240,6 +244,11 @@ def main():
     # progress_bar = tqdm(total=cam.get_frames())
     loop_and_detect(cam, trt_yolo, args.conf_thresh, lib, vis=vis)
 
+    # lib.stop_daemon()
+    # with open('power_consump.txt', 'a') as file:
+    #     file.write("stop")
+    #     file.write("\n")
+    # daemon_thread.join()
     # keep_running = False
     # progress_bar.close()
 

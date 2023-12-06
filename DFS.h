@@ -2,6 +2,10 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <unistd.h>
+#include <signal.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <syslog.h>
 
 // Constants and global variables
 #define F_NOMINAL 921600000 // Assuming a nominal frequency of 921Mhz for illustration
@@ -20,3 +24,5 @@ void calculate_power(float);
 int read_power();
 extern int set_low_bound();
 void set_high_bound();
+
+static volatile bool keep_running = true;

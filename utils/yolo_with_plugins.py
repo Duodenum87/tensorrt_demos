@@ -311,12 +311,6 @@ class TrtYOLO(object):
 
     def detect(self, img, conf_th=0.3, letter_box=None):
         """Detect objects in the input image."""
-        # scale down at preprocessing
-        lib.set_low_bound.restypes = [ctypes.c_int]
-        freq = lib.set_low_bound()
-        lib.read_frequency.restypes = [ctypes.c_int]
-        f = lib.read_frequency()
-        print(f)
 
         letter_box = self.letter_box if letter_box is None else letter_box
         img_resized = _preprocess_yolo(img, self.input_shape, letter_box)
@@ -326,11 +320,12 @@ class TrtYOLO(object):
         self.inputs[0].host = np.ascontiguousarray(img_resized)
         if self.cuda_ctx:
             self.cuda_ctx.push()
+
         # scale up to the original state before infernece_fn()
-        lib.set_high_bound.argtypes = [ctypes.c_int]
-        lib.set_high_bound(freq)
-        f = lib.read_frequency()
-        print(f)
+        # lib.set_high_bound.argtypes = [ctypes.c_int]
+        # lib.set_high_bound(11)
+        # f = lib.read_frequency()
+        # print(f)
 
         trt_outputs = self.inference_fn(
             context=self.context,
@@ -340,6 +335,13 @@ class TrtYOLO(object):
             stream=self.stream)
         if self.cuda_ctx:
             self.cuda_ctx.pop()
+
+        # scale down at preprocessing
+        # lib.set_low_bound.restypes = [ctypes.c_int]
+        # freq = lib.set_low_bound()
+        # lib.read_frequency.restypes = [ctypes.c_int]
+        # f = lib.read_frequency()
+        # print(f)
 
         boxes, scores, classes = _postprocess_yolo(
             trt_outputs, img.shape[1], img.shape[0], conf_th,

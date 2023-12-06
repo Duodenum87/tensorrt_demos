@@ -4,6 +4,8 @@ __pycache__
 pytrt.cpp
 build
 pytrt.*.so
+*.so
+*.txt
 
 *.jpg
 *.png
@@ -41,3 +43,5 @@ modnet/venv*
 modnet/*.ckpt
 modnet/*.onnx
 modnet/*.engine
+
+prof.*

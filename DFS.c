@@ -195,6 +195,67 @@ void set_high_bound(int last_frequency_index)
     current_frequency_index = last_frequency_index;
 }
 
+void daemonize() 
+{
+    pid_t pid = fork();
+
+    if (pid < 0) {
+        exit(EXIT_FAILURE);
+    }
+
+    if (pid > 0) {
+        exit(EXIT_SUCCESS);
+    }
+
+    if (setsid() < 0) {
+        exit(EXIT_FAILURE);
+    }
+
+    signal(SIGCHLD, SIG_IGN);
+    signal(SIGHUP, SIG_IGN);
+
+    pid = fork();
+
+    if (pid < 0) {
+        exit(EXIT_FAILURE);
+    }
+
+    if (pid > 0) {
+        exit(EXIT_SUCCESS);
+    }
+
+    umask(0);
+
+    chdir("/");
+
+    for (int x = sysconf(_SC_OPEN_MAX); x >= 0; x--) {
+        close(x);
+    }
+
+    openlog("power_daemon", LOG_PID, LOG_DAEMON);
+}
+
+void stop_daemon() 
+{
+    keep_running = false;
+}
+
+void power_monitoring_daemon() 
+{
+    /* daemonize(); */
+
+    while (keep_running) {
+        // Check if the target program is still running
+        // If not, break the loop and exit
+
+        calculate_power(0.01); // Assuming 1 second intervals
+        sleep(0.01); // Sleep for a second or the desired interval
+    }
+
+    syslog(LOG_NOTICE, "Power monitoring daemon terminated.");
+    closelog();
+}
+
 int main(bool P_THERSHOLD_exceed)
 {
     // while (1)
