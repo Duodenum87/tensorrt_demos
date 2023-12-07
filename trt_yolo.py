@@ -94,6 +94,15 @@ start_time = 0
 #     subprocess.run(command, shell=True)
 #     return GPU_freq_stats + 1 if GPU_freq_stats != len(GPU_freq) - 1 else len(GPU_freq) - 1
 
+# PID Controller Variables
+Kp = 0.1  # Proportional gain
+Ki = 0.01  # Integral gain
+Kd = 0.05  # Derivative gain
+
+integral_error = 0
+previous_error = 0
+
+
 def parse_args():
     """Parse input arguments."""
     desc = ('Capture and display live camera video, while doing '
@@ -122,6 +131,28 @@ def parse_args():
 def run_daemon(lib):
     lib.power_monitoring_daemon()
 
+def pid_update(current_error, dt):
+    global integral_error, previous_error
+
+    # Proportional term
+    P_out = Kp * current_error
+
+    # Integral term
+    integral_error += current_error * dt
+    I_out = Ki * integral_error
+
+    # Derivative term
+    derivative = (current_error - previous_error) / dt
+    D_out = Kd * derivative
+
+    # Total output
+    total_output = P_out + I_out + D_out
+
+    # Update previous error
+    previous_error = current_error
+
+    return total_output
+
 def loop_and_detect(cam, trt_yolo, conf_th, lib, vis):
     """Continuously capture images from camera and do object detection.
 
@@ -131,14 +162,14 @@ def loop_and_detect(cam, trt_yolo, conf_th, lib, vis):
       conf_th: confidence/score threshold for object detection.
       vis: for visualization.
     """
+    global previous_error
     full_scrn = False
     fps = 0.0
     tic = time.time()
-    # GPU_freq_stats = 11
-    # curr_rate = 0
-    # max_rate = 0
     count = 0
     exceed_flag = 0
+    thres =  dynamic_require(bboxes=0, perf=0.0, gpu_util=0.0)
+    curr =  dynamic_require(bboxes=0, perf=0.0, gpu_util=0.0)
     while True:
         if cv2.getWindowProperty(WINDOW_NAME, 0) < 0:
             break
@@ -148,43 +179,19 @@ def loop_and_detect(cam, trt_yolo, conf_th, lib, vis):
 
 
         boxes, confs, clss = trt_yolo.detect(img, conf_th)
+
+        #
+        curr.bboxes = len(boxes)
+        curr.perf = toc - tic
+        curr.gpu_util = lib.read_GPU_usage()
+        thres = lib.update_threshold(ctypes.byref(thres), ctypes.byref(curr)).contents
+
+
         img = vis.draw_bboxes(img, boxes, confs, clss)
         img = show_fps(img, fps)
         cv2.imshow(WINDOW_NAME, img)
         toc = time.time()
         curr_fps = 1.0 / (toc - tic)
-        # DFS algorithm
-        # lib.main.argtypes = [ctypes.c_bool]
-        # lib.main.restypes = [ctypes.c_int]
-        # exceed_flag = lib.main(exceed_flag)
-        # print(exceed_flag)
-
-        # calculate the power consumption in this iteration
-        # lib.calculate_power.argtypes = [ctypes.c_float]
-        # lib.calculate_power(toc - tic)
-
-        # """ Scale by the estimated remaining time
-        # """
-        # progress_bar.update()
-        # curr_rate = progress_bar.format_dict['rate']
-        # # if curr_rate is not None and count < 50:
-        # #     if curr_rate > max_rate:
-        # #         max_rate = curr_rate
-        # # elif curr_rate is not None and count % 5 == 0:
-        # #     # if first_rate is None:
-        # #     #     fisrt_rate = curr_rate
-        # #     # else:
-        # #     #     if abs(first_rate - curr_rate) < 0.01 * curr_rate:
-        # #     #         GPU_freq_stats = GPU_scale_down(GPU_freq_stats)
-        # #     #     elif curr_rate < 0.8 * first_rate:
-        # #     #         GPU_freq_stats = GPU_scale_up(GPU_freq_stats)
-        # #     if curr_rate < 0.8 * max_rate * 0.95:
-        # #         GPU_freq_stats = GPU_scale_up(GPU_freq_stats)
-        # #     elif curr_rate > 0.8 * max_rate * 1.05 or current_power > 6500:
-        # #         GPU_freq_stats = GPU_scale_down(GPU_freq_stats)
-
-        # """
-        # """
         # calculate an exponentially decaying average of fps number
         fps = curr_fps if fps == 0.0 else (fps*0.95 + curr_fps*0.05)
         tic = toc

@@ -107,6 +107,33 @@ void update_frequency_index()
     return;
 }
 
+void set_freq(int index)
+{
+    FILE *fileMax, *fileMin;
+    fileMax = fopen("/sys/devices/57000000.gpu/devfreq/57000000.gpu/max_freq", "w");
+    fileMin = fopen("/sys/devices/57000000.gpu/devfreq/57000000.gpu/min_freq", "w");
+    if (fileMax == NULL || fileMin == NULL) {
+        perror("Error opening file");
+        return;
+    }
+    update_frequency_index();
+    if (index == current_frequency_index) {
+        return;
+    } else if (index > current_frequency_index && index < sizeof(frequencies) / sizeof(frequencies[0])) {
+        fprintf(fileMax, "%d", frequencies[index]);
+        fprintf(fileMin, "%d", frequencies[index]);
+    } else if (index < current_frequency_index && index >= 0) {
+        fprintf(fileMin, "%d", frequencies[index]);
+        fprintf(fileMax, "%d", frequencies[index]);
+    } else {
+        perror("Error frequency index");
+        return;
+    }
+    fclose(fileMax);
+    fclose(fileMin);
+    return;
+}
+
 void increase_freq()
 {
     if (current_frequency_index < sizeof(frequencies) / sizeof(frequencies[0]) - 1) {
@@ -195,6 +222,7 @@ void set_high_bound(int last_frequency_index)
     current_frequency_index = last_frequency_index;
 }
 
+// Was Not Used due to the CUDA dump issue
 void daemonize() 
 {
     pid_t pid = fork();
@@ -254,6 +282,17 @@ void power_monitoring_daemon()
 
     syslog(LOG_NOTICE, "Power monitoring daemon terminated.");
     closelog();
+}
+
+dynamic_require* update_threshold(dynamic_require *thres, dynamic_require *curr)
+{
+    // Moving average algorithm
+    float alpha = 0.1;
+    thres->bboxes = alpha * curr->bboxes + (1 - alpha) * thres->bboxes;
+    thres->perf = alpha * curr->perf + (1 - alpha) * thres->perf;
+    thres->gpu_util = alpha * curr->gpu_util + (1 - alpha) * thres->gpu_util;
+    
+    return thres;
 }
 
 int main(bool P_THERSHOLD_exceed)

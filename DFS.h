@@ -26,3 +26,9 @@ extern int set_low_bound();
 void set_high_bound();
 
 static volatile bool keep_running = true;
+
+typedef struct {
+    float bboxes; // #Bounding box 
+    float perf; // Processing time of each frame
+    float gpu_util; // GPU utiliztion rate 
+} dynamic_require;
