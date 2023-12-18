@@ -39,21 +39,27 @@ int read_power()
 
 int read_frequency()
 {
-    FILE *fp;
-    char buf[1024];
-    int frequency = 0;
-
-    fp = fopen("/sys/devices/57000000.gpu/devfreq/57000000.gpu/cur_freq", "r");
+    /* this function read from the filesystem of GPU cur_freq
+     * returns the index of the frequency list from 0 to 11 */
+    FILE *fp = fopen(GPU_PATH "cur_freq", "r");
     if (!fp) {
         perror("Failed to read frequency");
         exit(1);
     }
 
-    fgets(buf, sizeof(buf), fp);
-    sscanf(buf, "%d", &frequency);
+    long long number;
+
+    if (fscanf(fp, "%lld", &number) != 1) {
+        perror("Failed to read frequency");
+        exit(1);
+    }
+    if (number < F_MIN || number > (F_MIN + INTERVAL + (FREQ_SIZE - 1))) {
+        perror("Failed to read frequency");
+        exit(1);
+    }
 
     fclose(fp);
-    return frequency;
+    return (number - F_MIN) / INTERVAL;
 }
 
 int read_GPU_usage()
@@ -77,6 +83,7 @@ int read_GPU_usage()
 
 void update_frequency_index()
 {
+    // redundent function
     FILE *fp = fopen("/sys/devices/57000000.gpu/devfreq/57000000.gpu/cur_freq", "r");
     if (!fp) {
         perror("Failed to open the file");
@@ -109,34 +116,50 @@ void update_frequency_index()
 
 void set_freq(int index)
 {
-    FILE *fileMax, *fileMin;
-    fileMax = fopen("/sys/devices/57000000.gpu/devfreq/57000000.gpu/max_freq", "w");
-    fileMin = fopen("/sys/devices/57000000.gpu/devfreq/57000000.gpu/min_freq", "w");
-    if (fileMax == NULL || fileMin == NULL) {
-        perror("Error opening file");
+    FILE *fp = fopen(GPU_PATH "userspace/set_freq", "w");
+    if (!fp) {
+        perror("Error setting frequency");
         return;
     }
-    update_frequency_index();
-    if (index == current_frequency_index) {
-        fclose(fileMax);
-        fclose(fileMin);
-        return;
-    } else if (index > current_frequency_index && index < sizeof(frequencies) / sizeof(frequencies[0])) {
-        fprintf(fileMax, "%d", frequencies[index]);
-        fprintf(fileMin, "%d", frequencies[index]);
-    } else if (index < current_frequency_index && index >= 0) {
-        fprintf(fileMin, "%d", frequencies[index]);
-        fprintf(fileMax, "%d", frequencies[index]);
-    } else {
-        perror("Error frequency index");
-        fclose(fileMax);
-        fclose(fileMin);
-        return;
-    }
-    fclose(fileMax);
-    fclose(fileMin);
+
+    int freq = (index * INTERVAL) + F_MIN;
+    fprintf(fp, "%d", freq);
+    fclose(fp);
+
     return;
 }
+
+/* void set_freq(int index) */
+/* { */
+/*     FILE *fileMax, *fileMin; */
+/*     fileMax = fopen("/sys/devices/57000000.gpu/devfreq/57000000.gpu/max_freq", "w"); */
+/*     fileMin = fopen("/sys/devices/57000000.gpu/devfreq/57000000.gpu/min_freq", "w"); */
+/*     if (fileMax == NULL || fileMin == NULL) { */
+/*         perror("Error opening file"); */
+/*         return; */
+/*     } */
+/*     int curr_idx = read_frequency(); */
+
+/*     if (index == curr_idx) { */
+/*         fclose(fileMax); */
+/*         fclose(fileMin); */
+/*         return; */
+/*     } else if (index > current_frequency_index && index < sizeof(frequencies) / sizeof(frequencies[0])) { */
+/*         fprintf(fileMax, "%d", frequencies[index]); */
+/*         fprintf(fileMin, "%d", frequencies[index]); */
+/*     } else if (index < current_frequency_index && index >= 0) { */
+/*         fprintf(fileMin, "%d", frequencies[index]); */
+/*         fprintf(fileMax, "%d", frequencies[index]); */
+/*     } else { */
+/*         perror("Error frequency index"); */
+/*         fclose(fileMax); */
+/*         fclose(fileMin); */
+/*         return; */
+/*     } */
+/*     fclose(fileMax); */
+/*     fclose(fileMin); */
+/*     return; */
+/* } */
 
 void increase_freq()
 {
@@ -226,9 +249,10 @@ void set_high_bound(int last_frequency_index)
     current_frequency_index = last_frequency_index;
 }
 
-// Was Not Used due to the CUDA dump issue
 void daemonize() 
 {
+    /* todo: to measure the power consumption at the background
+     * current issue: daemonize will cause CUDA core dump      */
     pid_t pid = fork();
 
     if (pid < 0) {
@@ -301,26 +325,23 @@ dynamic_require* update_threshold(dynamic_require *thres, dynamic_require *curr)
 
 int main(bool P_THERSHOLD_exceed)
 {
-    // while (1)
-    // {
-    //     sleep(DELTA_T / 1000);
+    /* todo: the initialization of setting GPU scaling governor */
 
-        int power = read_power();
-        int workload = read_GPU_usage();
+    int power = read_power();
+    int workload = read_GPU_usage();
 
-        update_frequency_index();
+    update_frequency_index();
 
-        printf("current power: %d\n", power);
-        if (power > P_THRESHOLD) {
-            decrease_freq();
-            P_THERSHOLD_exceed = 1;
-        } else if (workload < LOW_WORKLOAD_THRESHOLD) {
-            decrease_freq();
-            P_THERSHOLD_exceed = 0;
-        } else if (workload > HIGH_WORKLOAD_THRESHOLD && !P_THERSHOLD_exceed) {
-            increase_freq();
-        }
+    printf("current power: %d\n", power);
+    if (power > P_THRESHOLD) {
+        decrease_freq();
+        P_THERSHOLD_exceed = 1;
+    } else if (workload < LOW_WORKLOAD_THRESHOLD) {
+        decrease_freq();
+        P_THERSHOLD_exceed = 0;
+    } else if (workload > HIGH_WORKLOAD_THRESHOLD && !P_THERSHOLD_exceed) {
+        increase_freq();
+    }
 
-    // }
     return P_THERSHOLD_exceed ? 1 : 0;
 }
