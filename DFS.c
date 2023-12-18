@@ -118,6 +118,8 @@ void set_freq(int index)
     }
     update_frequency_index();
     if (index == current_frequency_index) {
+        fclose(fileMax);
+        fclose(fileMin);
         return;
     } else if (index > current_frequency_index && index < sizeof(frequencies) / sizeof(frequencies[0])) {
         fprintf(fileMax, "%d", frequencies[index]);
@@ -127,6 +129,8 @@ void set_freq(int index)
         fprintf(fileMax, "%d", frequencies[index]);
     } else {
         perror("Error frequency index");
+        fclose(fileMax);
+        fclose(fileMin);
         return;
     }
     fclose(fileMax);

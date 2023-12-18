@@ -25,83 +25,6 @@ from utils.yolo_with_plugins import TrtYOLO
 
 WINDOW_NAME = 'TrtYOLODemo'
 start_time = 0
-# keep_running = True
-# current_power = 0
-
-# def read_file(path):
-#     with open(path, "r") as f:
-#         power = f.read().strip()
-#     return power
-
-# def get_power_consump():
-#     global keep_running
-#     sleep_time = 0.1
-#     energy = [0, 0, 0]
-#     power_path = ["/sys/bus/i2c/drivers/ina3221x/6-0040/iio:device0/in_power0_input",
-#                     "/sys/bus/i2c/drivers/ina3221x/6-0040/iio:device0/in_power1_input",
-#                     "/sys/bus/i2c/drivers/ina3221x/6-0040/iio:device0/in_power2_input"]
-
-#     last_time = time.time()
-#     while keep_running:
-#         curr_time = time.time()
-#         dt = curr_time - last_time
-#         for i in range(3):
-#             power = read_file(power_path[i])
-#             energy[i] += float(power) * dt
-#         last_time = curr_time
-#         time.sleep(sleep_time)
-        
-#     with open('gpu_power_consump.txt', 'a') as file:
-#         for i in range(3):
-#             file.write(f"{energy[i]}\n")
-    
-# def get_power():
-#     global keep_running
-#     global current_power
-#     sleep_time = 0.1
-#     power_path = ["/sys/bus/i2c/drivers/ina3221x/6-0040/iio:device0/in_power0_input",
-#                     "/sys/bus/i2c/drivers/ina3221x/6-0040/iio:device0/in_power1_input",
-#                     "/sys/bus/i2c/drivers/ina3221x/6-0040/iio:device0/in_power2_input"]
-#     while keep_running:
-#         power = read_file(power_path[0])
-#         current_power = int(power)
-#         with open('gpu_output.txt', 'a') as file:
-#             file.write(f"{power}\n") 
-#         time.sleep(sleep_time)
-
-    
-# def GPU_scale_down(GPU_freq_stats):
-#     GPU_freq = [76800000, 153600000, 230400000, 307200000, 384000000, 460800000, 
-#                 537600000, 614400000, 691200000, 768000000, 844800000, 921600000]
-#     if GPU_freq_stats != 0: 
-#         freq = GPU_freq[GPU_freq_stats - 1] 
-#     else:
-#         freq = GPU_freq[0]
-
-#     command = "echo " + str(freq) + "| tee /sys/devices/57000000.gpu/devfreq/57000000.gpu/min_freq /sys/devices/57000000.gpu/devfreq/57000000.gpu/max_freq"
-#     subprocess.run(command, shell=True)
-#     return GPU_freq_stats - 1 if GPU_freq_stats != 0 else 0
-    
-# def GPU_scale_up(GPU_freq_stats):
-#     GPU_freq = [76800000, 153600000, 230400000, 307200000, 384000000, 460800000, 
-#                 537600000, 614400000, 691200000, 768000000, 844800000, 921600000]
-#     if GPU_freq_stats != len(GPU_freq) - 1: 
-#         freq = GPU_freq[GPU_freq_stats + 1] 
-#     else:
-#         freq = GPU_freq[len(GPU_freq) - 1]
-
-#     command = "echo " + str(freq) + "| tee /sys/devices/57000000.gpu/devfreq/57000000.gpu/max_freq /sys/devices/57000000.gpu/devfreq/57000000.gpu/min_freq"
-#     subprocess.run(command, shell=True)
-#     return GPU_freq_stats + 1 if GPU_freq_stats != len(GPU_freq) - 1 else len(GPU_freq) - 1
-
-# PID Controller Variables
-Kp = 0.1  # Proportional gain
-Ki = 0.01  # Integral gain
-Kd = 0.05  # Derivative gain
-
-integral_error = 0
-previous_error = 0
-
 
 def parse_args():
     """Parse input arguments."""
@@ -131,27 +54,82 @@ def parse_args():
 def run_daemon(lib):
     lib.power_monitoring_daemon()
 
-def pid_update(current_error, dt):
+# PID Controller Variables
+Kp = 10 # Proportional gain
+Ki = 0.001  # Integral gain
+Kd = 0.05  # Derivative gain
+
+integral_error = 0
+previous_error = 0
+
+recent_perfs = []
+perf_entries = 10
+
+# Adaptively choose performance target
+def update_adaptive_target(current_processing_time):
+    recent_perfs.append(current_processing_time)
+    if len(recent_perfs) > perf_entries:
+        recent_perfs.pop(0)
+    adaptive_target = sum(recent_perfs) / len(recent_perfs)
+    return adaptive_target
+
+def normalize_output(pid_output, min_output, max_output):
+    return (pid_output - min_output) / (max_output - min_output)
+
+def pid_update(current_value, target_value, dt):
     global integral_error, previous_error
+    error = current_value - target_value
 
     # Proportional term
-    P_out = Kp * current_error
+    P_out = Kp * error
 
     # Integral term
-    integral_error += current_error * dt
+    integral_error += error * dt
     I_out = Ki * integral_error
 
     # Derivative term
-    derivative = (current_error - previous_error) / dt
+    derivative = (error - previous_error) / dt
     D_out = Kd * derivative
 
     # Total output
     total_output = P_out + I_out + D_out
 
-    # Update previous error
-    previous_error = current_error
+    # Update previous error for next iteration
+    previous_error = error
+
+    # Debugging print statements
+    print(f"Total Output: {total_output}")
 
     return total_output
+
+def calculate_bbox_adjustment(current_bounding_boxes, target_bounding_boxes):
+    deviation = current_bounding_boxes - target_bounding_boxes
+    scaling_factor = ...  # Define scaling factor
+    return deviation / target_bounding_boxes * scaling_factor
+
+def calculate_gpu_utilization_adjustment(current_gpu_utilization, target_gpu_utilization):
+    lower_bound, upper_bound = target_gpu_utilization
+    if current_gpu_utilization < lower_bound:
+        return (current_gpu_utilization - lower_bound) / lower_bound
+    elif current_gpu_utilization > upper_bound:
+        return (current_gpu_utilization - upper_bound) / (100 - upper_bound)
+    return 0
+
+# Function to map the adjustment value to a GPU frequency
+def new_freq_index(adjustment):
+    index = min(max(int(adjustment * 12), 0), 12 - 1)# len(freqs) = 12
+    return index
+    # if adjustment < 0.5:
+    #     index = int(adjustment * 2 * 12 / 2)
+    # else:
+    #     index = int((adjustment - 0.5) * 2 * 6 + 6)
+    # return index
+
+def combine_adjustments(perf_adj, bbox_adj, gpu_adj):
+    weight_perf = 1
+    weight_bbox = 0.2
+    weight_gpu = 0.2
+    return weight_perf * perf_adj + weight_bbox * bbox_adj + weight_gpu * gpu_adj
 
 def loop_and_detect(cam, trt_yolo, conf_th, lib, vis):
     """Continuously capture images from camera and do object detection.
@@ -165,11 +143,10 @@ def loop_and_detect(cam, trt_yolo, conf_th, lib, vis):
     global previous_error
     full_scrn = False
     fps = 0.0
-    tic = time.time()
+    last_time = time.time()
     count = 0
     exceed_flag = 0
-    thres =  dynamic_require(bboxes=0, perf=0.0, gpu_util=0.0)
-    curr =  dynamic_require(bboxes=0, perf=0.0, gpu_util=0.0)
+
     while True:
         if cv2.getWindowProperty(WINDOW_NAME, 0) < 0:
             break
@@ -177,21 +154,39 @@ def loop_and_detect(cam, trt_yolo, conf_th, lib, vis):
         if img is None:
             break
 
+        current_time = time.time()
+        dt = current_time - last_time
 
         boxes, confs, clss = trt_yolo.detect(img, conf_th)
 
         #
-        curr.bboxes = len(boxes)
-        curr.perf = toc - tic
-        curr.gpu_util = lib.read_GPU_usage()
-        thres = lib.update_threshold(ctypes.byref(thres), ctypes.byref(curr)).contents
+        curr_boxes = len(boxes)
+        curr_gpu_util = lib.read_GPU_usage()
 
+         # Update adaptive target processing time
+        adaptive_target_processing_time = update_adaptive_target(current_time - last_time)
+
+         # PID control
+        pid_output = pid_update(current_time - last_time, adaptive_target_processing_time, dt)
+        process_time_adjustment = normalize_output(pid_output, -2, 1)
+
+        # Adjustments based on bounding boxes and GPU utilization
+        # bbox_adjustment = calculate_bbox_adjustment(curr_boxes, target_bounding_boxes)
+        # gpu_utilization_adjustment = calculate_gpu_utilization_adjustment(curr_gpu_util, target_gpu_utilization)
+        bbox_adjustment = 0
+        gpu_utilization_adjustment = 0
+
+        # Combine adjustments and update GPU frequency
+        final_adjustment = combine_adjustments(process_time_adjustment, bbox_adjustment, gpu_utilization_adjustment)
+        freq_idx = new_freq_index(final_adjustment)
+        lib.set_freq.argtypes = [ctypes.c_int]
+        lib.set_freq(freq_idx)  # Implement GPU frequency setting logic
 
         img = vis.draw_bboxes(img, boxes, confs, clss)
         img = show_fps(img, fps)
         cv2.imshow(WINDOW_NAME, img)
         toc = time.time()
-        curr_fps = 1.0 / (toc - tic)
+        curr_fps = 1.0 / (toc - last_time)
         # calculate an exponentially decaying average of fps number
         fps = curr_fps if fps == 0.0 else (fps*0.95 + curr_fps*0.05)
         tic = toc
@@ -202,11 +197,12 @@ def loop_and_detect(cam, trt_yolo, conf_th, lib, vis):
             full_scrn = not full_scrn
             set_display(WINDOW_NAME, full_scrn)
         count += 1
-        with open('perf_output.txt', 'a') as file:
-            file.write(str(count))
-            file.write(' ')
-            file.write(str(time.time() - start_time))
-            file.write("\n")
+        # with open('perf_output.txt', 'a') as file:
+        #     file.write(str(count))
+        #     file.write(' ')
+        #     file.write(str(time.time() - start_time))
+            # file.write("\n")
+        last_time = current_time
 
 
 
@@ -230,17 +226,12 @@ def main():
     # daemon_thread = threading.Thread(target=run_daemon, args=(lib,))
     # daemon_thread.start()
     usage = lib.read_GPU_usage()
-    print(usage)
-    with open('perf_output.txt', 'a') as file:
-        file.write(str(time.time() - start_time))
-        file.write("\n")
 
     cls_dict = get_cls_dict(args.category_num)
     vis = BBoxVisualization(cls_dict)
     trt_yolo = TrtYOLO(args.model, args.category_num, args.letter_box)
 
     usage = lib.read_GPU_usage()
-    print(usage)
     with open('perf_output.txt', 'a') as file:
         file.write(str(time.time() - start_time))
         file.write("\n")
