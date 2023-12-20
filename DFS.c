@@ -161,92 +161,53 @@ void set_freq(int index)
 /*     return; */
 /* } */
 
-void increase_freq()
+void increase_freq(int steps)
 {
-    if (current_frequency_index < sizeof(frequencies) / sizeof(frequencies[0]) - 1) {
-        int index = current_frequency_index + 1;
-        if (index >= 0 && index < sizeof(frequencies) / sizeof(frequencies[0])) {
-            FILE *file1, *file2;
-            file1 = fopen("/sys/devices/57000000.gpu/devfreq/57000000.gpu/max_freq", "w");
-            file2 = fopen("/sys/devices/57000000.gpu/devfreq/57000000.gpu/min_freq", "w");
-
-            if (file1 == NULL || file2 == NULL) {
-                perror("Error opening file");
-                return;
-            }
-
-            fprintf(file1, "%d", frequencies[index]);
-            fprintf(file2, "%d", frequencies[index]);
-            printf("Frequency set to: %dHz\n", frequencies[index]);
-
-            fclose(file1);
-            fclose(file2);
-        }
+    /* increase freq by the input steps */
+    int curr_idx = read_frequency();
+    int idx = curr_idx + steps;
+    if (idx >= FREQ_SIZE) {
+        // to the max freq
+        set_freq(11);
+    } else {
+        set_freq(idx);
     }
+
+    return;
 }
 
-void decrease_freq()
+void decrease_freq(int steps)
 {
-    if (current_frequency_index > 0) {
-        int index = current_frequency_index - 1;
-        if (index >= 0 && index < sizeof(frequencies) / sizeof(frequencies[0])) {
-            FILE *file1, *file2;
-            file1 = fopen("/sys/devices/57000000.gpu/devfreq/57000000.gpu/min_freq", "w");
-            file2 = fopen("/sys/devices/57000000.gpu/devfreq/57000000.gpu/max_freq", "w");
-
-            if (file1 == NULL || file2 == NULL) {
-                perror("Error opening file");
-                return;
-            }
-
-            fprintf(file1, "%d", frequencies[index]);
-            fprintf(file2, "%d", frequencies[index]);
-            printf("Frequency set to: %dHz\n", frequencies[index]);
-
-            fclose(file1);
-            fclose(file2);
-        }
+    int curr_idx = read_frequency();
+    int idx = curr_idx - steps;
+    if (idx < 0) {
+        // to the min freq
+        set_freq(0);
+    } else {
+        set_freq(idx);
     }
+
+    return;
 }
 
 int set_low_bound()
 {
-    FILE *file1 = fopen("/sys/devices/57000000.gpu/devfreq/57000000.gpu/min_freq", "w");
-    FILE *file2 = fopen("/sys/devices/57000000.gpu/devfreq/57000000.gpu/max_freq", "w");
+    /* set to minimal frequency and return the original state index 
+     * used in fine-grained scale to the minimal frequency         */
+    int from_idx = read_frequency();
 
-    if (file1 == NULL || file2 == NULL) {
-        perror("Error opening file");
-        exit(1);
-    }
+    set_freq(0);
 
-    update_frequency_index();
-
-    fprintf(file1, "%d", frequencies[0]);
-    fprintf(file2, "%d", frequencies[0]);
-
-    fclose(file1);
-    fclose(file2);
-
-    return current_frequency_index; // store the original state
+    return from_idx;
 }
 
-void set_high_bound(int last_frequency_index)
+void set_high_bound(int from_idx)
 {
-    FILE *file1 = fopen("/sys/devices/57000000.gpu/devfreq/57000000.gpu/max_freq", "w");
-    FILE *file2 = fopen("/sys/devices/57000000.gpu/devfreq/57000000.gpu/min_freq", "w");
+    /* return to the original state before set_low_bound()
+     * used in fine-grained scale to the minimal frequecny  */
+    set_freq(from_idx);
 
-    if (file1 == NULL || file2 == NULL) {
-        perror("Error opening file");
-        return;
-    }
-
-    fprintf(file1, "%d", frequencies[last_frequency_index]);
-    fprintf(file2, "%d", frequencies[last_frequency_index]);
-
-    fclose(file1);
-    fclose(file2);
-
-    current_frequency_index = last_frequency_index;
+    return;
 }
 
 void daemonize() 
@@ -314,6 +275,7 @@ void power_monitoring_daemon()
 
 dynamic_require* update_threshold(dynamic_require *thres, dynamic_require *curr)
 {
+    /* todo: write the c version of three vector weighter */
     // Moving average algorithm
     float alpha = 0.1;
     thres->bboxes = alpha * curr->bboxes + (1 - alpha) * thres->bboxes;
@@ -323,10 +285,8 @@ dynamic_require* update_threshold(dynamic_require *thres, dynamic_require *curr)
     return thres;
 }
 
-int main(bool P_THERSHOLD_exceed)
+int gpu_scaling_workload(bool P_THERSHOLD_exceed)
 {
-    /* todo: the initialization of setting GPU scaling governor */
-
     int power = read_power();
     int workload = read_GPU_usage();
 
@@ -334,14 +294,48 @@ int main(bool P_THERSHOLD_exceed)
 
     printf("current power: %d\n", power);
     if (power > P_THRESHOLD) {
-        decrease_freq();
+        decrease_freq(1);
         P_THERSHOLD_exceed = 1;
     } else if (workload < LOW_WORKLOAD_THRESHOLD) {
-        decrease_freq();
+        decrease_freq(1);
         P_THERSHOLD_exceed = 0;
     } else if (workload > HIGH_WORKLOAD_THRESHOLD && !P_THERSHOLD_exceed) {
-        increase_freq();
+        increase_freq(1);
     }
 
     return P_THERSHOLD_exceed ? 1 : 0;
+}
+
+int main()
+{
+    /* todo: the initialization of setting GPU scaling governor */
+    typedef struct {
+        const char* path;
+        char info[20];
+    } fileOp;
+
+    fileOp ops[3];
+
+    sprintf(ops[1].info, "%d", F_MAX);
+    sprintf(ops[2].info, "%d", F_MIN);
+
+    ops[0] = (fileOp){GPU_PATH "governor", "userspace"};
+    ops[1].path = GPU_PATH "max_freq";
+    ops[2].path = GPU_PATH "min_freq";
+    
+    int numOps = sizeof(ops) / sizeof(ops[0]);
+
+    for (int i = 0; i < numOps; i++) {
+        FILE* fp = fopen(ops[i].path, "w");
+        if (!fp) {
+            perror("Failed init");
+            return -1;
+        }
+
+        fprintf(fp, "%s", ops[i].info);
+        fclose(fp);
+    }
+    printf("Successful init GPU scaling governor as userspace");
+
+    return 0;               
 }

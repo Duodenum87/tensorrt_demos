@@ -225,7 +225,7 @@ def main():
     # t.start()
     # daemon_thread = threading.Thread(target=run_daemon, args=(lib,))
     # daemon_thread.start()
-    usage = lib.read_GPU_usage()
+    lib.main()
 
     cls_dict = get_cls_dict(args.category_num)
     vis = BBoxVisualization(cls_dict)
