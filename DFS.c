@@ -43,18 +43,18 @@ int read_frequency()
      * returns the index of the frequency list from 0 to 11 */
     FILE *fp = fopen(GPU_PATH "cur_freq", "r");
     if (!fp) {
-        perror("Failed to read frequency");
+        perror("Failed to read frequency: 1");
         exit(1);
     }
 
     long long number;
 
     if (fscanf(fp, "%lld", &number) != 1) {
-        perror("Failed to read frequency");
+        perror("Failed to read frequency: 2");
         exit(1);
     }
-    if (number < F_MIN || number > (F_MIN + INTERVAL + (FREQ_SIZE - 1))) {
-        perror("Failed to read frequency");
+    if (number < F_MIN || number > F_MAX) {
+        perror("Failed to read frequency: 3");
         exit(1);
     }
 

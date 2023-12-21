@@ -115,21 +115,22 @@ def calculate_gpu_utilization_adjustment(current_gpu_utilization, target_gpu_uti
         return (current_gpu_utilization - upper_bound) / (100 - upper_bound)
     return 0
 
-# Function to map the adjustment value to a GPU frequency
+def combine_adjustments(perf_adj, bbox_adj, gpu_adj):
+    weight_perf = 1
+    weight_bbox = 0.2
+    weight_gpu = 0.2
+    return weight_perf * perf_adj + weight_bbox * bbox_adj + weight_gpu * gpu_adj
+
+# Function to map the adjustment value to index diff
 def new_freq_index(adjustment):
-    index = min(max(int(adjustment * 12), 0), 12 - 1)# len(freqs) = 12
+    # choose between up or down within 10 frequency index steps
+    index = adjustment * 10
     return index
     # if adjustment < 0.5:
     #     index = int(adjustment * 2 * 12 / 2)
     # else:
     #     index = int((adjustment - 0.5) * 2 * 6 + 6)
     # return index
-
-def combine_adjustments(perf_adj, bbox_adj, gpu_adj):
-    weight_perf = 1
-    weight_bbox = 0.2
-    weight_gpu = 0.2
-    return weight_perf * perf_adj + weight_bbox * bbox_adj + weight_gpu * gpu_adj
 
 def loop_and_detect(cam, trt_yolo, conf_th, lib, vis):
     """Continuously capture images from camera and do object detection.
@@ -164,23 +165,29 @@ def loop_and_detect(cam, trt_yolo, conf_th, lib, vis):
         curr_gpu_util = lib.read_GPU_usage()
 
          # Update adaptive target processing time
-        adaptive_target_processing_time = update_adaptive_target(current_time - last_time)
+        adaptive_target_processing_time = update_adaptive_target(dt)
 
          # PID control
-        pid_output = pid_update(current_time - last_time, adaptive_target_processing_time, dt)
-        process_time_adjustment = normalize_output(pid_output, -2, 1)
+        process_time_adjustment = pid_update(dt, adaptive_target_processing_time, dt)
 
         # Adjustments based on bounding boxes and GPU utilization
-        # bbox_adjustment = calculate_bbox_adjustment(curr_boxes, target_bounding_boxes)
-        # gpu_utilization_adjustment = calculate_gpu_utilization_adjustment(curr_gpu_util, target_gpu_utilization)
+    # bbox_adjustment = calculate_bbox_adjustment(curr_boxes, target_bounding_boxes)
+    # gpu_utilization_adjustment = calculate_gpu_utilization_adjustment(curr_gpu_util, target_gpu_utilization)
         bbox_adjustment = 0
         gpu_utilization_adjustment = 0
 
         # Combine adjustments and update GPU frequency
         final_adjustment = combine_adjustments(process_time_adjustment, bbox_adjustment, gpu_utilization_adjustment)
         freq_idx = new_freq_index(final_adjustment)
+        original_idx = lib.read_frequency()
+
+        #typecasting
+        freq_idx = int(freq_idx)
+        original_idx = int(original_idx)
+        new_freq_idx = ctypes.c_int(freq_idx + original_idx)
+
         lib.set_freq.argtypes = [ctypes.c_int]
-        lib.set_freq(freq_idx)  # Implement GPU frequency setting logic
+        lib.set_freq(new_freq_idx)  # set the frequency up or down by freq_idx levels
 
         img = vis.draw_bboxes(img, boxes, confs, clss)
         img = show_fps(img, fps)
