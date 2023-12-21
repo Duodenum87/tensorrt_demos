@@ -336,6 +336,8 @@ class TrtYOLO(object):
         if self.cuda_ctx:
             self.cuda_ctx.pop()
 
+        gpu_util = lib.read_GPU_usage()
+
         # scale down at preprocessing
         # lib.set_low_bound.restypes = [ctypes.c_int]
         # freq = lib.set_low_bound()
@@ -351,4 +353,4 @@ class TrtYOLO(object):
         # clip x1, y1, x2, y2 within original image
         boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, img.shape[1]-1)
         boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, img.shape[0]-1)
-        return boxes, scores, classes
+        return boxes, scores, classes, gpu_util

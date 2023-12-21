@@ -55,7 +55,7 @@ def run_daemon(lib):
     lib.power_monitoring_daemon()
 
 # PID Controller Variables
-Kp = 10 # Proportional gain
+Kp = 5 # Proportional gain
 Ki = 0.001  # Integral gain
 Kd = 0.05  # Derivative gain
 
@@ -82,23 +82,17 @@ def pid_update(current_value, target_value, dt):
 
     # Proportional term
     P_out = Kp * error
-
     # Integral term
     integral_error += error * dt
     I_out = Ki * integral_error
-
     # Derivative term
     derivative = (error - previous_error) / dt
     D_out = Kd * derivative
-
     # Total output
     total_output = P_out + I_out + D_out
-
     # Update previous error for next iteration
     previous_error = error
 
-    # Debugging print statements
-    print(f"Total Output: {total_output}")
 
     return total_output
 
@@ -107,19 +101,19 @@ def calculate_bbox_adjustment(current_bounding_boxes, target_bounding_boxes):
     scaling_factor = ...  # Define scaling factor
     return deviation / target_bounding_boxes * scaling_factor
 
-def calculate_gpu_utilization_adjustment(current_gpu_utilization, target_gpu_utilization):
-    lower_bound, upper_bound = target_gpu_utilization
-    if current_gpu_utilization < lower_bound:
-        return (current_gpu_utilization - lower_bound) / lower_bound
-    elif current_gpu_utilization > upper_bound:
-        return (current_gpu_utilization - upper_bound) / (100 - upper_bound)
-    return 0
+def calculate_gpu_utilization_adjustment(gpu_util):
+    # gpu_util will be 0~1000, return 0~1 as the intent to scale up frequency
+    normalized_util = gpu_util / 1000.0
+    scale_factor = (1 - normalized_util) ** 2
+    return scale_factor
 
 def combine_adjustments(perf_adj, bbox_adj, gpu_adj):
-    weight_perf = 1
+    print(f"perf Output: {perf_adj}")
+    print(f"gpu_util Output: {gpu_adj}")
+    weight_perf = 0.8
     weight_bbox = 0.2
     weight_gpu = 0.2
-    return weight_perf * perf_adj + weight_bbox * bbox_adj + weight_gpu * gpu_adj
+    return weight_perf * perf_adj + weight_bbox * bbox_adj - weight_gpu * gpu_adj
 
 # Function to map the adjustment value to index diff
 def new_freq_index(adjustment):
@@ -145,8 +139,6 @@ def loop_and_detect(cam, trt_yolo, conf_th, lib, vis):
     full_scrn = False
     fps = 0.0
     last_time = time.time()
-    count = 0
-    exceed_flag = 0
 
     while True:
         if cv2.getWindowProperty(WINDOW_NAME, 0) < 0:
@@ -158,11 +150,10 @@ def loop_and_detect(cam, trt_yolo, conf_th, lib, vis):
         current_time = time.time()
         dt = current_time - last_time
 
-        boxes, confs, clss = trt_yolo.detect(img, conf_th)
+        boxes, confs, clss, gpu_util = trt_yolo.detect(img, conf_th)
 
         #
         curr_boxes = len(boxes)
-        curr_gpu_util = lib.read_GPU_usage()
 
          # Update adaptive target processing time
         adaptive_target_processing_time = update_adaptive_target(dt)
@@ -172,9 +163,8 @@ def loop_and_detect(cam, trt_yolo, conf_th, lib, vis):
 
         # Adjustments based on bounding boxes and GPU utilization
     # bbox_adjustment = calculate_bbox_adjustment(curr_boxes, target_bounding_boxes)
-    # gpu_utilization_adjustment = calculate_gpu_utilization_adjustment(curr_gpu_util, target_gpu_utilization)
+        gpu_utilization_adjustment = calculate_gpu_utilization_adjustment(gpu_util)
         bbox_adjustment = 0
-        gpu_utilization_adjustment = 0
 
         # Combine adjustments and update GPU frequency
         final_adjustment = combine_adjustments(process_time_adjustment, bbox_adjustment, gpu_utilization_adjustment)
@@ -203,12 +193,6 @@ def loop_and_detect(cam, trt_yolo, conf_th, lib, vis):
         elif key == ord('F') or key == ord('f'):  # Toggle fullscreen
             full_scrn = not full_scrn
             set_display(WINDOW_NAME, full_scrn)
-        count += 1
-        # with open('perf_output.txt', 'a') as file:
-        #     file.write(str(count))
-        #     file.write(' ')
-        #     file.write(str(time.time() - start_time))
-            # file.write("\n")
         last_time = current_time
 
 
@@ -225,47 +209,46 @@ def main():
     if not cam.isOpened():
         raise SystemExit('ERROR: failed to open camera!')
 
-    # global keep_running
-    # with open('gpu_output.txt', 'a') as file:
-    #     file.write("\n")
-    # t = threading.Thread(target=get_power)
-    # t.start()
-    # daemon_thread = threading.Thread(target=run_daemon, args=(lib,))
-    # daemon_thread.start()
+    # FOR POWER COMSUMP PROFILE
+        # global keep_running
+        # with open('gpu_output.txt', 'a') as file:
+        #     file.write("\n")
+        # t = threading.Thread(target=get_power)
+        # t.start()
+        # daemon_thread = threading.Thread(target=run_daemon, args=(lib,))
+        # daemon_thread.start()
+
+    # Init GPU governor
     lib.main()
+    lib.set_freq(9)
 
     cls_dict = get_cls_dict(args.category_num)
     vis = BBoxVisualization(cls_dict)
     trt_yolo = TrtYOLO(args.model, args.category_num, args.letter_box)
 
-    usage = lib.read_GPU_usage()
-    with open('perf_output.txt', 'a') as file:
-        file.write(str(time.time() - start_time))
-        file.write("\n")
-
     open_window(
         WINDOW_NAME, 'Camera TensorRT YOLO Demo',
         cam.img_width, cam.img_height)
-    # progress_bar = tqdm(total=cam.get_frames())
     loop_and_detect(cam, trt_yolo, args.conf_thresh, lib, vis=vis)
 
-    # lib.stop_daemon()
-    # with open('power_consump.txt', 'a') as file:
-    #     file.write("stop")
-    #     file.write("\n")
-    # daemon_thread.join()
-    # keep_running = False
-    # progress_bar.close()
+    # FOR POWER COMSUMP PROFILE
+        # lib.stop_daemon()
+        # with open('power_consump.txt', 'a') as file:
+        #     file.write("stop")
+        #     file.write("\n")
+        # daemon_thread.join()
+        # keep_running = False
 
     cam.release()
     cv2.destroyAllWindows()
 
 
 if __name__ == '__main__':
-    start_time = time.time()
+    # FOR PERFORMANCE PROFILE
+        # start_time = time.time()
     main()
-    end_time = time.time()
-    with open('perf_output.txt', 'a') as file:
-        file.write(str(end_time - start_time))
-        file.write("\n")
+        # end_time = time.time()
+        # with open('perf_output.txt', 'a') as file:
+            # file.write(str(end_time - start_time))
+            # file.write("\n")
 
