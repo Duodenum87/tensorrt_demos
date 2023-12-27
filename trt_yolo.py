@@ -48,6 +48,12 @@ def parse_args():
     parser.add_argument(
         '-l', '--letter_box', action='store_true',
         help='inference with letterboxed image [False]')
+    parser.add_argument(
+        '-p', '--perf', action='store_true',
+        help='enable performance(overall execution time) profiling')
+    parser.add_argument(
+        '-w', '--watts', action='store_true',
+        help='enable power consumption profiling')
     args = parser.parse_args()
     return args
 
@@ -55,15 +61,24 @@ def run_daemon(lib):
     lib.power_monitoring_daemon()
 
 # PID Controller Variables
-Kp = 5 # Proportional gain
+Kp = 10 # Proportional gain
 Ki = 0.001  # Integral gain
 Kd = 0.05  # Derivative gain
 
 integral_error = 0
 previous_error = 0
 
+recent_boxes = []
+boxes_entries = 10
 recent_perfs = []
 perf_entries = 10
+
+def update_boxex_target(curr_boxes):
+    recent_boxes.append(curr_boxes)
+    if len(recent_boxes) > boxes_entries:
+        recent_boxes.pop(0)
+    target_boxes = sum(recent_boxes) / len(recent_boxes)
+    return target_boxes
 
 # Adaptively choose performance target
 def update_adaptive_target(current_processing_time):
@@ -93,24 +108,34 @@ def pid_update(current_value, target_value, dt):
     # Update previous error for next iteration
     previous_error = error
 
-
     return total_output
 
-def calculate_bbox_adjustment(current_bounding_boxes, target_bounding_boxes):
-    deviation = current_bounding_boxes - target_bounding_boxes
-    scaling_factor = ...  # Define scaling factor
-    return deviation / target_bounding_boxes * scaling_factor
+def calculate_bbox_adjustment(curr_boxes, target_boxes):
+    # Calculates a scale factor based on the difference between curr_boxes and target_boxes
+    max_boxes = 20
+    print(f"curr_boxes Output: {curr_boxes}")
+    normalized_diff = (curr_boxes - target_boxes) / max_boxes
+
+    # Apply non-linear scaling (e.g., quadratic scaling)
+    scale_factor = normalized_diff ** 2 * (1 if curr_boxes > target_boxes else -1)
+
+    # Ensure the scale factor is within the range -1 to 1
+    scale_factor = max(-1, min(scale_factor, 1))
+
+    return scale_factor
 
 def calculate_gpu_utilization_adjustment(gpu_util):
     # gpu_util will be 0~1000, return 0~1 as the intent to scale up frequency
     normalized_util = gpu_util / 1000.0
+    print(f"gpu_util Output: {gpu_util}")
     scale_factor = (1 - normalized_util) ** 2
     return scale_factor
 
 def combine_adjustments(perf_adj, bbox_adj, gpu_adj):
     print(f"perf Output: {perf_adj}")
-    print(f"gpu_util Output: {gpu_adj}")
-    weight_perf = 0.8
+    print(f"box Output: {bbox_adj}")
+    print(f"gpu Output: {gpu_adj}")
+    weight_perf = 0.6
     weight_bbox = 0.2
     weight_gpu = 0.2
     return weight_perf * perf_adj + weight_bbox * bbox_adj - weight_gpu * gpu_adj
@@ -152,8 +177,9 @@ def loop_and_detect(cam, trt_yolo, conf_th, lib, vis):
 
         boxes, confs, clss, gpu_util = trt_yolo.detect(img, conf_th)
 
-        #
+        # Update target_bounding_box
         curr_boxes = len(boxes)
+        target_boxes = update_boxex_target(curr_boxes)
 
          # Update adaptive target processing time
         adaptive_target_processing_time = update_adaptive_target(dt)
@@ -162,9 +188,8 @@ def loop_and_detect(cam, trt_yolo, conf_th, lib, vis):
         process_time_adjustment = pid_update(dt, adaptive_target_processing_time, dt)
 
         # Adjustments based on bounding boxes and GPU utilization
-    # bbox_adjustment = calculate_bbox_adjustment(curr_boxes, target_bounding_boxes)
+        bbox_adjustment = calculate_bbox_adjustment(curr_boxes, target_boxes)
         gpu_utilization_adjustment = calculate_gpu_utilization_adjustment(gpu_util)
-        bbox_adjustment = 0
 
         # Combine adjustments and update GPU frequency
         final_adjustment = combine_adjustments(process_time_adjustment, bbox_adjustment, gpu_utilization_adjustment)
@@ -210,17 +235,18 @@ def main():
         raise SystemExit('ERROR: failed to open camera!')
 
     # FOR POWER COMSUMP PROFILE
-        # global keep_running
+    if args.watts:
+        global keep_running
         # with open('gpu_output.txt', 'a') as file:
-        #     file.write("\n")
+            # file.write("\n")
         # t = threading.Thread(target=get_power)
         # t.start()
-        # daemon_thread = threading.Thread(target=run_daemon, args=(lib,))
-        # daemon_thread.start()
+        daemon_thread = threading.Thread(target=run_daemon, args=(lib,))
+        daemon_thread.start()
 
     # Init GPU governor
     lib.main()
-    lib.set_freq(9)
+    lib.set_freq(8)
 
     cls_dict = get_cls_dict(args.category_num)
     vis = BBoxVisualization(cls_dict)
@@ -232,23 +258,27 @@ def main():
     loop_and_detect(cam, trt_yolo, args.conf_thresh, lib, vis=vis)
 
     # FOR POWER COMSUMP PROFILE
-        # lib.stop_daemon()
-        # with open('power_consump.txt', 'a') as file:
-        #     file.write("stop")
-        #     file.write("\n")
-        # daemon_thread.join()
-        # keep_running = False
+    if args.watts:
+        lib.stop_daemon()
+        with open('power_consump.txt', 'a') as file:
+            file.write("stop")
+            file.write("\n")
+        daemon_thread.join()
+        keep_running = False
 
     cam.release()
     cv2.destroyAllWindows()
 
 
 if __name__ == '__main__':
+    args = parse_args()
     # FOR PERFORMANCE PROFILE
-        # start_time = time.time()
+    if args.perf:
+        start_time = time.time()
     main()
-        # end_time = time.time()
-        # with open('perf_output.txt', 'a') as file:
-            # file.write(str(end_time - start_time))
-            # file.write("\n")
+    if args.perf:
+        end_time = time.time()
+        with open('perf_output.txt', 'a') as file:
+            file.write(str(end_time - start_time))
+            file.write("\n")
 
