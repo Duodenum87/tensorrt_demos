@@ -3,19 +3,19 @@
 int frequencies[] = {76800000, 153600000, 230400000, 307200000, 384000000, 460800000, 537600000, 614400000, 691200000, 768000000, 844800000, 921600000};
 int current_frequency_index = 11;
 
-void calculate_power(float timelapse)
+int calculate_power(float timelapse)
 {
     int power = read_power();
     FILE *fp = fopen("./power_consump.txt", "a");
     if (!fp) {
         perror("Failed to create txt");
-        return;
+        return 0;
     }
 
     fprintf(fp, "%d\t%f\n", power, timelapse);
-    
     fclose(fp);
-    return;
+
+    return power;
 }
 
 int read_power() 
@@ -257,20 +257,24 @@ void stop_daemon()
     keep_running = false;
 }
 
-void power_monitoring_daemon() 
+void power_monitoring_daemon(bool write) 
 {
     /* daemonize(); */
+    int accumulate = 0;
 
     while (keep_running) {
-        // Check if the target program is still running
-        // If not, break the loop and exit
-
-        calculate_power(0.01); // Assuming 1 second intervals
+        /* Check if the target program is still running
+        * If not, break the loop and exit                   */
+        accumulate += calculate_power(0.01) * 0.01 ; // Assuming 10 ms intervals
         sleep(0.01); // Sleep for a second or the desired interval
     }
 
-    syslog(LOG_NOTICE, "Power monitoring daemon terminated.");
-    closelog();
+    if (write) {
+        FILE* file = fopen("./preprofile.txt", "w");
+        fprintf(file, "%d\n", accumulate);
+    }
+    /* syslog(LOG_NOTICE, "Power monitoring daemon terminated."); */
+    /* closelog(); */
 }
 
 dynamic_require* update_threshold(dynamic_require *thres, dynamic_require *curr)

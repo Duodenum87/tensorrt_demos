@@ -23,7 +23,7 @@
 #define GPU_PATH "/sys/devices/57000000.gpu/devfreq/57000000.gpu/"
 
 extern void update_frequency_index();
-void calculate_power(float);
+int calculate_power(float);
 int read_power();
 extern int set_low_bound();
 void set_high_bound();

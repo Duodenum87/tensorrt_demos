@@ -8,6 +8,8 @@ import os
 import sys
 import json
 import argparse
+import ctypes
+import threading
 
 import cv2
 import pycuda.autoinit  # This is needed for initializing CUDA driver
@@ -50,6 +52,12 @@ def parse_args():
     parser.add_argument(
         '-l', '--letter_box', action='store_true',
         help='inference with letterboxed image [False]')
+    parser.add_argument(
+        '-w', '--watts', action='store_true',
+        help='enable power consumption profiling')
+    parser.add_argument(
+        '-f', '--freq', type=int,
+        help='specify the initial GPU frequency index (0 ~ 11)')
     args = parser.parse_args()
     return args
 
@@ -68,7 +76,7 @@ def generate_results(trt_yolo, imgs_dir, jpgs, results_file, non_coco):
     for jpg in progressbar(jpgs):
         img = cv2.imread(os.path.join(imgs_dir, jpg))
         image_id = int(jpg.split('.')[0].split('_')[-1])
-        boxes, confs, clss = trt_yolo.detect(img, conf_th=1e-2)
+        boxes, confs, clss, gpu_util = trt_yolo.detect(img, conf_th=1e-2)
         for box, conf, cls in zip(boxes, confs, clss):
             x = float(box[0])
             y = float(box[1])
@@ -83,6 +91,9 @@ def generate_results(trt_yolo, imgs_dir, jpgs, results_file, non_coco):
     with open(results_file, 'w') as f:
         f.write(json.dumps(results, indent=4))
 
+def run_daemon(lib):
+    lib.power_monitoring_daemon.argtypes = [ctypes.c_bool]
+    lib.power_monitoring_daemon(True)
 
 def main():
     args = parse_args()
@@ -92,13 +103,36 @@ def main():
     if not os.path.isfile('yolo/%s.trt' % args.model):
         raise SystemExit('ERROR: file (yolo/%s.trt) not found!' % args.model)
 
-    results_file = 'yolo/results_%s.json' % args.model
+    # init GPU frequency and load so
+    lib = ctypes.CDLL('./DFS.so')
+    lib.main()
+    lib.set_freq(args.freq)
+    with open('preprofile.txt', 'a') as file:
+        f = args.freq * 76800000 + 76800000
+        file.write(str(f))
+        file.write("\n")
 
+    results_file = 'yolo/results_%s.json' % args.model
     trt_yolo = TrtYOLO(args.model, args.category_num, args.letter_box)
 
     jpgs = [j for j in os.listdir(args.imgs_dir) if j.endswith('.jpg')]
+    print(len(jpgs))
+
+    if args.watts:
+        global keep_running
+        daemon_thread = threading.Thread(target=run_daemon, args=(lib,))
+        daemon_thread.start()
+
     generate_results(trt_yolo, args.imgs_dir, jpgs, results_file,
                      non_coco=args.non_coco)
+
+    if args.watts:
+        lib.stop_daemon()
+        with open('power_consump.txt', 'a') as file:
+            file.write("stop")
+            file.write("\n")
+        daemon_thread.join()
+        keep_running = False
 
     # Run COCO mAP evaluation
     # Reference: https://github.com/cocodataset/cocoapi/blob/master/PythonAPI/pycocoEvalDemo.ipynb

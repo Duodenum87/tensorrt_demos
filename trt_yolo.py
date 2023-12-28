@@ -58,7 +58,8 @@ def parse_args():
     return args
 
 def run_daemon(lib):
-    lib.power_monitoring_daemon()
+    lib.power_monitoring_daemon.argtypes = [ctypes.c_bool]
+    lib.power_monitoring_daemon(False)
 
 # PID Controller Variables
 Kp = 10 # Proportional gain
