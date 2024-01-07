@@ -6,6 +6,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <syslog.h>
+#include <time.h>
 
 // Constants and global variables
 #define F_NOMINAL 921600000 // Assuming a nominal frequency of 921Mhz for illustration
@@ -21,10 +22,10 @@
 #define HIGH_WORKLOAD_THRESHOLD 80 // Placeholder value
 #define MARGIN 5 // Safety margin for power
 #define GPU_PATH "/sys/devices/57000000.gpu/devfreq/57000000.gpu/"
+#define BUFFER_SIZE 100 // buffer for power consumption monitor
 
 extern void update_frequency_index();
 int calculate_power(float);
-int read_power();
 extern int set_low_bound();
 void set_high_bound();
 

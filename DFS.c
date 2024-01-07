@@ -1,41 +1,84 @@
 #include "DFS.h"
 
-int frequencies[] = {76800000, 153600000, 230400000, 307200000, 384000000, 460800000, 537600000, 614400000, 691200000, 768000000, 844800000, 921600000};
-int current_frequency_index = 11;
+FILE* open_log_file() {
+    time_t now = time(NULL);
+    struct tm *t = localtime(&now);
 
-int calculate_power(float timelapse)
-{
-    int power = read_power();
-    FILE *fp = fopen("./power_consump.txt", "a");
+    char time_str[20];
+    strftime(time_str, sizeof(time_str), "%Y%m%d_%H%M%S", t);
+
+    char filename[40];
+    snprintf(filename, sizeof(filename), "power_logs/power_consump_%s.txt", time_str);
+
+    FILE* fp = fopen(filename, "a");
     if (!fp) {
-        perror("Failed to create txt");
-        return 0;
+        perror("Failed to open file");
+        return NULL;
     }
 
-    fprintf(fp, "%d\t%f\n", power, timelapse);
-    fclose(fp);
-
-    return power;
+    return fp;
 }
 
-int read_power() 
-{
-    FILE *fp;
-    char buf[1024];
-    int power = 0;
-
-    fp = fopen("/sys/bus/i2c/drivers/ina3221x/6-0040/iio:device0/in_power0_input", "r");
+void flush_buffer(int* buffer, int* size, FILE* fp) {
     if (!fp) {
-        perror("Failed to read power");
-        exit(1);
+        perror("File not open");
+        return;
     }
 
-    fgets(buf, sizeof(buf), fp);
-    sscanf(buf, "%d", &power);
+    for (int i = 0; i < *size; ++i) {
+        fprintf(fp, "%d\n", buffer[i]);
+    }
+}
 
-    fclose(fp);
-    return power;
+void read_power(int* buffer, int* index) 
+{
+    int power = 0;
+    FILE* fp_read = fopen("/sys/bus/i2c/drivers/ina3221x/6-0040/iio:device0/in_power0_input", "r");
+    if (!fp_read) {
+        perror("Failed to open power input file");
+        return;
+    }
+
+    if (fscanf(fp_read, "%d", &power)) {
+        buffer[*index] = power;
+        (*index)++;
+    } else {
+        perror("Failed to read power");
+    }
+
+    fclose(fp_read);
 } 
+
+int power_monitoring_daemon(bool write) 
+{
+    /* daemonize(); */
+    int power_buffer[BUFFER_SIZE];
+    int buffer_index = 0;
+
+    FILE* fp_write = NULL;
+    fp_write = open_log_file();
+
+    while (keep_running) {
+        read_power(power_buffer, &buffer_index);
+        if (buffer_index >= BUFFER_SIZE) {
+            flush_buffer(power_buffer, &buffer_index, fp_write);
+            buffer_index = 0;
+        }
+        sleep(0.01);
+    }
+
+    flush_buffer(power_buffer, &buffer_index, fp_write);
+    fclose(fp_write);
+    /* if (write) { */
+    /*     FILE* file = fopen("./preprofile.txt", "a"); */
+    /*     fprintf(file, "%d\n", accumulate); */
+    /*     fclose(file); */
+    /* } */
+    /* syslog(LOG_NOTICE, "Power monitoring daemon terminated."); */
+    /* closelog(); */
+    return 0;
+}
+
 
 int read_frequency()
 {
@@ -81,38 +124,38 @@ int read_GPU_usage()
     return usage;
 }
 
-void update_frequency_index()
-{
-    // redundent function
-    FILE *fp = fopen("/sys/devices/57000000.gpu/devfreq/57000000.gpu/cur_freq", "r");
-    if (!fp) {
-        perror("Failed to open the file");
-        return;
-    }
+/* void update_frequency_index() */
+/* { */
+/*     // redundent function */
+/*     FILE *fp = fopen("/sys/devices/57000000.gpu/devfreq/57000000.gpu/cur_freq", "r"); */
+/*     if (!fp) { */
+/*         perror("Failed to open the file"); */
+/*         return; */
+/*     } */
 
-    int cur_freq;
-    if (fscanf(fp, "%d", &cur_freq) != 1) {
-        fprintf(stderr, "Failed to read frequency value\n");
-        fclose(fp);
-        return;
-    }
-    fclose(fp);
+/*     int cur_freq; */
+/*     if (fscanf(fp, "%d", &cur_freq) != 1) { */
+/*         fprintf(stderr, "Failed to read frequency value\n"); */
+/*         fclose(fp); */
+/*         return; */
+/*     } */
+/*     fclose(fp); */
 
-    // linear search from frequency[]
-    bool found = 0;
-    for (int i = 0; i < sizeof(frequencies) / sizeof(frequencies[0]); i++) {
-        if (frequencies[i] == cur_freq) {
-            current_frequency_index = i;
-            found = 1;
-            break;
-        }
-    }
+/*     // linear search from frequency[] */
+/*     bool found = 0; */
+/*     for (int i = 0; i < sizeof(frequencies) / sizeof(frequencies[0]); i++) { */
+/*         if (frequencies[i] == cur_freq) { */
+/*             current_frequency_index = i; */
+/*             found = 1; */
+/*             break; */
+/*         } */
+/*     } */
 
-    if (!found) {
-        fprintf(stderr, "finding frequency from file error\n");
-    }
-    return;
-}
+/*     if (!found) { */
+/*         fprintf(stderr, "finding frequency from file error\n"); */
+/*     } */
+/*     return; */
+/* } */
 
 void set_freq(int index)
 {
@@ -257,26 +300,6 @@ void stop_daemon()
     keep_running = false;
 }
 
-void power_monitoring_daemon(bool write) 
-{
-    /* daemonize(); */
-    int accumulate = 0;
-
-    while (keep_running) {
-        /* Check if the target program is still running
-        * If not, break the loop and exit                   */
-        accumulate += calculate_power(0.01) * 0.01 ; // Assuming 10 ms intervals
-        sleep(0.01); // Sleep for a second or the desired interval
-    }
-
-    if (write) {
-        FILE* file = fopen("./preprofile.txt", "w");
-        fprintf(file, "%d\n", accumulate);
-    }
-    /* syslog(LOG_NOTICE, "Power monitoring daemon terminated."); */
-    /* closelog(); */
-}
-
 dynamic_require* update_threshold(dynamic_require *thres, dynamic_require *curr)
 {
     /* todo: write the c version of three vector weighter */
@@ -289,26 +312,26 @@ dynamic_require* update_threshold(dynamic_require *thres, dynamic_require *curr)
     return thres;
 }
 
-int gpu_scaling_workload(bool P_THERSHOLD_exceed)
-{
-    int power = read_power();
-    int workload = read_GPU_usage();
+/* int gpu_scaling_workload(bool P_THERSHOLD_exceed) */
+/* { */
+/*     int power = read_power(); */
+/*     int workload = read_GPU_usage(); */
 
-    update_frequency_index();
+/*     update_frequency_index(); */
 
-    printf("current power: %d\n", power);
-    if (power > P_THRESHOLD) {
-        decrease_freq(1);
-        P_THERSHOLD_exceed = 1;
-    } else if (workload < LOW_WORKLOAD_THRESHOLD) {
-        decrease_freq(1);
-        P_THERSHOLD_exceed = 0;
-    } else if (workload > HIGH_WORKLOAD_THRESHOLD && !P_THERSHOLD_exceed) {
-        increase_freq(1);
-    }
+/*     printf("current power: %d\n", power); */
+/*     if (power > P_THRESHOLD) { */
+/*         decrease_freq(1); */
+/*         P_THERSHOLD_exceed = 1; */
+/*     } else if (workload < LOW_WORKLOAD_THRESHOLD) { */
+/*         decrease_freq(1); */
+/*         P_THERSHOLD_exceed = 0; */
+/*     } else if (workload > HIGH_WORKLOAD_THRESHOLD && !P_THERSHOLD_exceed) { */
+/*         increase_freq(1); */
+/*     } */
 
-    return P_THERSHOLD_exceed ? 1 : 0;
-}
+/*     return P_THERSHOLD_exceed ? 1 : 0; */
+/* } */
 
 int main()
 {
