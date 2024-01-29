@@ -66,7 +66,7 @@ def run_daemon(lib):
     lib.power_monitoring_daemon(True)
 # 100 gcc
 # PID Controller Variables
-Kp = 10 # Proportional gain
+Kp = 1.8 # Proportional gain
 Ki = 0.001  # Integral gain
 Kd = 0.05  # Derivative gain
 
@@ -76,7 +76,7 @@ previous_error = 0
 recent_boxes = []
 boxes_entries = 10
 recent_perfs = []
-perf_entries = 10
+perf_entries = 1000
 
 # Adaptively choose #bounding box as target
 def update_boxex_target(curr_boxes):
@@ -149,11 +149,11 @@ def calculate_gpu_utilization_adjustment(gpu_util):
 
 def combine_adjustments(perf_adj, bbox_adj, gpu_adj):
     print(f"perf Output: {perf_adj}")
-    print(f"box Output: {bbox_adj}")
-    print(f"gpu Output: {gpu_adj}")
-    weight_perf = 0.6
-    weight_bbox = 0.2
-    weight_gpu = 0.2
+    # print(f"box Output: {bbox_adj}")
+    # print(f"gpu Output: {gpu_adj}")
+    weight_perf = 1.0
+    weight_bbox = 0.0
+    weight_gpu = 0.0
     return weight_perf * perf_adj + weight_bbox * bbox_adj - weight_gpu * gpu_adj
 
 # Function to map the adjustment value to index diff
@@ -182,7 +182,9 @@ def loop_and_detect(cam, trt_yolo, conf_th, lib, vis):
     fps = 0.0
     tic = time.time()
     dt = 0.01
+    count = 0
     while True:
+        count += 1
         if cv2.getWindowProperty(WINDOW_NAME, 0) < 0:
             break
         img = cam.read()
@@ -191,34 +193,35 @@ def loop_and_detect(cam, trt_yolo, conf_th, lib, vis):
 
         boxes, confs, clss, gpu_util = trt_yolo.detect(img, conf_th)
 
-        # Update target_bounding_box
-        curr_boxes = len(boxes)
-        target_boxes = update_boxex_target(curr_boxes)
+        if count > 30:
+            # Update target_bounding_box
+            curr_boxes = len(boxes)
+            target_boxes = update_boxex_target(curr_boxes)
 
-        # Update adaptive target processing time
-        adaptive_target_processing_time = update_adaptive_target(dt)
+            # Update adaptive target processing time
+            adaptive_target_processing_time = update_adaptive_target(dt)
 
-        # PID control
-        process_time_adjustment = pid_update(dt, adaptive_target_processing_time, dt)
+            # PID control
+            process_time_adjustment = pid_update(dt, adaptive_target_processing_time, dt)
 
-        # Adjustments based on bounding boxes and GPU utilization
-        bbox_adjustment = calculate_bbox_adjustment(curr_boxes)
-        gpu_utilization_adjustment = calculate_gpu_utilization_adjustment(gpu_util)
-        # energy, start_line = energy_per_frame(start_line)
-        # print(f"energy per frame {start_line}: {energy}")
+            # Adjustments based on bounding boxes and GPU utilization
+            bbox_adjustment = calculate_bbox_adjustment(curr_boxes)
+            gpu_utilization_adjustment = calculate_gpu_utilization_adjustment(gpu_util)
+            # energy, start_line = energy_per_frame(start_line)
+            # print(f"energy per frame {start_line}: {energy}")
 
-        # Combine adjustments and update GPU frequency
-        final_adjustment = combine_adjustments(process_time_adjustment, bbox_adjustment, gpu_utilization_adjustment)
-        freq_idx = new_freq_index(final_adjustment)
-        original_idx = lib.read_frequency()
+            # Combine adjustments and update GPU frequency
+            final_adjustment = combine_adjustments(process_time_adjustment, bbox_adjustment, gpu_utilization_adjustment)
+            freq_idx = new_freq_index(final_adjustment)
+            original_idx = lib.read_frequency()
 
-        #typecasting
-        freq_idx = int(freq_idx)
-        original_idx = int(original_idx)
-        new_freq_idx = ctypes.c_int(freq_idx + original_idx)
+            #typecasting
+            freq_idx = int(freq_idx)
+            original_idx = int(original_idx)
+            new_freq_idx = ctypes.c_int(freq_idx + original_idx)
 
-        # lib.set_freq.argtypes = [ctypes.c_int]
-        # lib.set_freq(new_freq_idx)  # set the frequency up or down by freq_idx levels
+            lib.set_freq.argtypes = [ctypes.c_int]
+            lib.set_freq(new_freq_idx)  # set the frequency up or down by freq_idx levels
 
         img = vis.draw_bboxes(img, boxes, confs, clss)
         img = show_fps(img, fps)
@@ -276,9 +279,6 @@ def main():
     if args.watts:
         lib.stop_daemon()
         daemon_thread.join()
-        with open('power_consump.txt', 'a') as file:
-            file.write("stop")
-            file.write("\n")
 
     if args.perf:
         end_time = time.time()
